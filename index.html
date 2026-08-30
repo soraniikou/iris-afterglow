@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>iris-afterglow</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#000;height:100%;width:100%;}
+  canvas{display:block;touch-action:none;}
+  #startOverlay{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;color:#fff;font-family:'Hiragino Mincho ProN','游明朝',serif;
+    z-index:10;background:radial-gradient(circle,#0a0a18,#000);cursor:pointer;
+  }
+  #startOverlay p{letter-spacing:0.25em;font-size:1.05rem;opacity:0.85;animation:pulse 2.2s infinite;}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  #poemText{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-family:'Hiragino Mincho ProN','游明朝',serif;font-size:1.2rem;
+    text-align:center;padding:2rem;opacity:0;transition:opacity 3.5s ease;
+    pointer-events:none;line-height:2.1;letter-spacing:0.08em;
+    text-shadow:0 0 24px rgba(255,255,255,0.55);white-space:pre-line;
+  }
+  #backBtn{
+    position:fixed;top:16px;left:16px;z-index:20;
+    background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);
+    border:1px solid rgba(255,255,255,0.25);border-radius:50%;
+    width:34px;height:34px;line-height:34px;text-align:center;padding:0;
+    font-size:1rem;font-family:sans-serif;cursor:pointer;backdrop-filter:blur(4px);
+  }
+  #backBtn:active{background:rgba(255,255,255,0.18);}
+</style>
+</head>
+<body>
+<div id="startOverlay"><p>Tap, and begin the ride ―</p></div>
+<button id="backBtn">←</button>
+<div id="poemText"></div>
+<canvas id="c"></canvas>
+
+<script>
+(function(){
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const startOverlay = document.getElementById('startOverlay');
+  const poemText = document.getElementById('poemText');
+  const backBtn = document.getElementById('backBtn');
+  let W,H;
+  function resize(){ W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+  resize();
+  addEventListener('resize', resize);
+
+  // ここは既存の「今日の奇跡の言葉」システムと差し替え可能
+  const POEM = "Just as I am\nTo the place where I am loved —";
+
+  let audioCtx, droneGain, riserOsc, riserGain, padGain;
+  let phase = 'idle'; // idle -> coaster -> drop -> plasma
+  let phaseStart = 0;
+  let startTime = 0;
+  const CLIMB_MS = 3000;   // 上昇（チェーンリフト）の長さ
+  const CREST_MS = 500;    // 頂上での一瞬の静止
+  const RUSH_MS = 9500;    // 後ろ向き加速の長さ
+  let climbInterval = null;
+  let climbAudioCleared = false;
+
+  // === 後ろ向きトンネルの粒子 ===
+  const N_PARTICLES = 140;
+  let particles = [];
+  function resetParticle(p){
+    p.angle = Math.random()*Math.PI*2;
+    p.radius = Math.max(W,H)*0.75 + Math.random()*200;
+    p.speed = 2 + Math.random()*2;
+    p.len = 20 + Math.random()*40;
+  }
+  for(let i=0;i<N_PARTICLES;i++){
+    const p = {}; resetParticle(p);
+    p.radius = Math.random()*Math.max(W,H)*0.75;
+    particles.push(p);
+  }
+
+  // === プラズマ用の光の粒 ===
+  const N_ORBS = 26;
+  let orbs = [];
+  function makeOrb(){
+    return {
+      x: Math.random()*W, y: H + Math.random()*H*0.5,
+      r: 10 + Math.random()*40, vy: 0.2 + Math.random()*0.5,
+      wob: Math.random()*Math.PI*2, hue: 180 + Math.random()*140
+    };
+  }
+  for(let i=0;i<N_ORBS;i++) orbs.push(makeOrb());
+
+  backBtn.addEventListener('click', ()=>{
+    if(climbInterval) clearInterval(climbInterval);
+    if(audioCtx) audioCtx.close();
+    location.reload();
+  });
+
+  function initAudio(){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+
+    // 走行音のドローン
+    const drone = audioCtx.createOscillator();
+    drone.type = 'sawtooth'; drone.frequency.value = 55;
+    const droneFilter = audioCtx.createBiquadFilter();
+    droneFilter.type = 'lowpass'; droneFilter.frequency.value = 400;
+    droneGain = audioCtx.createGain(); droneGain.gain.value = 0;
+    drone.connect(droneFilter).connect(droneGain).connect(audioCtx.destination);
+    drone.start();
+    droneGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 1.5);
+
+    // 落下直前の煽り上昇音
+    riserOsc = audioCtx.createOscillator(); riserOsc.type = 'sine';
+    riserGain = audioCtx.createGain(); riserGain.gain.value = 0;
+    riserOsc.connect(riserGain).connect(audioCtx.destination);
+    riserOsc.start();
+
+    // プラズマの穏やかなパッド
+    const pad1 = audioCtx.createOscillator(); pad1.type='sine'; pad1.frequency.value=220;
+    const pad2 = audioCtx.createOscillator(); pad2.type='sine'; pad2.frequency.value=330;
+    padGain = audioCtx.createGain(); padGain.gain.value = 0;
+    pad1.connect(padGain); pad2.connect(padGain); padGain.connect(audioCtx.destination);
+    pad1.start(); pad2.start();
+  }
+
+  function clackSound(){
+    const dur = 0.05;
+    const bufferSize = Math.floor(audioCtx.sampleRate*dur);
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++) data[i] = (Math.random()*2-1) * (1 - i/bufferSize);
+    const src = audioCtx.createBufferSource(); src.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'highpass'; filter.frequency.value = 1200;
+    const g = audioCtx.createGain(); g.gain.value = 0.22;
+    src.connect(filter).connect(g).connect(audioCtx.destination);
+    src.start();
+  }
+
+  function noiseBurst(){
+    const bufferSize = audioCtx.sampleRate * 0.4;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++) data[i] = (Math.random()*2-1) * (1 - i/bufferSize);
+    const src = audioCtx.createBufferSource(); src.buffer = buffer;
+    const g = audioCtx.createGain(); g.gain.value = 0.4;
+    src.connect(g).connect(audioCtx.destination);
+    src.start();
+  }
+
+  function startExperience(){
+    initAudio();
+    startOverlay.style.opacity = 0;
+    setTimeout(()=> startOverlay.style.display='none', 800);
+    phase = 'coaster';
+    phaseStart = performance.now();
+    startTime = phaseStart;
+    climbAudioCleared = false;
+    climbInterval = setInterval(clackSound, 260);
+  }
+  startOverlay.addEventListener('click', startExperience, {once:true});
+  startOverlay.addEventListener('touchstart', startExperience, {once:true});
+
+  function drawClimb(t){
+    ctx.fillStyle = 'rgba(0,0,10,0.4)';
+    ctx.fillRect(0,0,W,H);
+
+    const tiltProgress = t/CLIMB_MS;
+    const tiltAngle = -0.10 * tiltProgress; // 少しずつ機体が上向きに傾く
+
+    ctx.save();
+    ctx.translate(W/2, H/2);
+    ctx.rotate(tiltAngle);
+    ctx.translate(-W/2, -H/2);
+
+    // レールの脇を流れる光の筋（上昇するにつれ下へ流れていく＝景色が下に落ちていく感覚）
+    for(let i=0;i<40;i++){
+      const seed = (i*97) % W;
+      const speed = 0.6 + (i%5)*0.25;
+      const y = ((t*speed*0.12) + i*53) % (H+100) - 50;
+      const alpha = 0.12 + 0.12*Math.abs(Math.sin(i));
+      ctx.strokeStyle = `rgba(200,210,255,${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(seed, y);
+      ctx.lineTo(seed, y-26);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // カチッ、カチッという機械音に合わせた微振動フラッシュ
+    const clackInterval = 260;
+    const sincePrevClack = t % clackInterval;
+    if(sincePrevClack < 40){
+      ctx.fillStyle = `rgba(255,255,255,${0.06*(1-sincePrevClack/40)})`;
+      ctx.fillRect(0,0,W,H);
+    }
+
+    if(droneGain) droneGain.gain.value = 0.06 + 0.03*tiltProgress;
+  }
+
+  function drawCrest(t){
+    ctx.fillStyle = 'rgba(0,0,10,0.3)';
+    ctx.fillRect(0,0,W,H);
+    // 頂上での一瞬の静けさ（ふわっと浮く感覚）
+    const glowAlpha = 0.35*(1 - t/CREST_MS);
+    const g = ctx.createRadialGradient(W/2,H*0.4,10, W/2,H*0.4, Math.max(W,H)*0.6);
+    g.addColorStop(0, `rgba(255,255,255,${glowAlpha})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  function drawCoaster(t){
+    ctx.fillStyle = 'rgba(0,0,5,0.35)';
+    ctx.fillRect(0,0,W,H);
+    const cx = W/2, cy = H/2;
+    const speedMul = 1 + Math.min(t/9000, 2.5);
+
+    for(const p of particles){
+      p.radius -= p.speed * speedMul; // 中心に収束＝後ろ向きに吸い込まれる感覚
+      if(p.radius < 10) resetParticle(p);
+      const x1 = cx + Math.cos(p.angle)*p.radius;
+      const y1 = cy + Math.sin(p.angle)*p.radius;
+      const x2 = cx + Math.cos(p.angle)*(p.radius+p.len);
+      const y2 = cy + Math.sin(p.angle)*(p.radius+p.len);
+      const alpha = 1 - p.radius/(Math.max(W,H)*0.75);
+      ctx.strokeStyle = `rgba(180,200,255,${Math.max(0,alpha*0.8)})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    }
+
+    // 音符（音が鳴っているイメージを視覚化）
+    const beat = Math.sin(t/180)*0.5+0.5;
+    ctx.font = `${18+beat*6}px sans-serif`;
+    ctx.fillStyle = `rgba(255,255,255,${0.4+beat*0.4})`;
+    ctx.fillText('♪', cx-60+Math.sin(t/300)*10, cy-120);
+    ctx.fillText('♪', cx+50+Math.cos(t/260)*10, cy-90);
+
+    if(droneGain) droneGain.gain.value = Math.min(0.25, 0.1 + t/20000);
+  }
+
+  function drawDrop(now){
+    const local = now - phaseStart;
+    const flashAlpha = Math.max(0, 1 - local/500);
+    ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
+    ctx.fillRect(0,0,W,H);
+    for(const p of particles){
+      p.radius -= 40;
+      if(p.radius < 10) resetParticle(p);
+    }
+  }
+
+  function drawPlasma(t){
+    const hue = (t/60) % 360;
+    const NOTE_FADE_MS = 2000;
+    const grad = ctx.createRadialGradient(W/2,H*0.6,50, W/2,H*0.6, Math.max(W,H));
+    grad.addColorStop(0, `hsla(${hue},70%,55%,0.5)`);
+    grad.addColorStop(1, `hsla(${(hue+80)%360},60%,15%,1)`);
+    ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+
+    // 水の揺らめき（キャラスティック風）
+    ctx.globalAlpha = 0.15;
+    for(let i=0;i<6;i++){
+      ctx.beginPath();
+      for(let x=0;x<=W;x+=20){
+        const y = H*0.3 + i*40 + Math.sin(x*0.01 + t/700 + i)*30;
+        x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // 浮遊する光の粒
+    for(const o of orbs){
+      o.y -= o.vy; o.wob += 0.02;
+      const x = o.x + Math.sin(o.wob)*15;
+      if(o.y < -50) Object.assign(o, makeOrb(), {y: H+20});
+      const g = ctx.createRadialGradient(x,o.y,0,x,o.y,o.r);
+      g.addColorStop(0, `hsla(${o.hue},90%,80%,0.9)`);
+      g.addColorStop(1, `hsla(${o.hue},90%,80%,0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x,o.y,o.r,0,Math.PI*2); ctx.fill();
+    }
+
+    // ジェットコースターの音符をフェーダーとして残像的にフェードアウト
+    if(t < NOTE_FADE_MS){
+      const fadeAlpha = 1 - t/NOTE_FADE_MS;
+      const cx = W/2, cy = H/2;
+      const beat = Math.sin(t/180)*0.5+0.5;
+      ctx.font = `${18+beat*6}px sans-serif`;
+      ctx.fillStyle = `rgba(255,255,255,${(0.4+beat*0.4)*fadeAlpha})`;
+      ctx.fillText('♪', cx-60+Math.sin(t/300)*10, cy-120);
+      ctx.fillText('♪', cx+50+Math.cos(t/260)*10, cy-90);
+    }
+  }
+
+  function loop(now){
+    if(!startTime) startTime = now;
+
+    if(phase === 'coaster'){
+      const t = now - phaseStart;
+      if(t < CLIMB_MS){
+        drawClimb(t);
+      } else if(t < CLIMB_MS + CREST_MS){
+        if(!climbAudioCleared){ clearInterval(climbInterval); climbAudioCleared = true; }
+        drawCrest(t - CLIMB_MS);
+      } else {
+        const rt = t - CLIMB_MS - CREST_MS;
+        drawCoaster(rt);
+        if(rt > RUSH_MS){
+          phase = 'drop'; phaseStart = now;
+          riserOsc.frequency.setValueAtTime(200, audioCtx.currentTime);
+          riserOsc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime+1.0);
+          riserGain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+          riserGain.gain.exponentialRampToValueAtTime(0.3, audioCtx.currentTime+1.0);
+          setTimeout(()=>{
+            noiseBurst();
+            riserGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.5);
+            droneGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime+1.0);
+          }, 1000);
+        }
+      }
+    } else if(phase === 'drop'){
+      drawDrop(now);
+      if(now - phaseStart > 900){
+        phase = 'plasma'; phaseStart = now;
+        const now0 = audioCtx.currentTime;
+        [droneGain, riserGain, padGain].forEach(g=>{
+          g.gain.cancelScheduledValues(now0);
+          g.gain.setValueAtTime(0, now0);
+        });
+        setTimeout(()=>{ poemText.style.opacity = 1; }, 3000);
+        poemText.textContent = POEM;
+      }
+    } else if(phase === 'plasma'){
+      drawPlasma(now - phaseStart);
+    } else {
+      ctx.fillStyle = 'rgba(0,0,10,1)';
+      ctx.fillRect(0,0,W,H);
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
