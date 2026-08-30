@@ -51,7 +51,7 @@
 
   // ここは既存の「今日の奇跡の言葉」システムと差し替え可能
   const POEM = "Just as I am\nTo the place where I am loved —";
-  const COSMOS_TEXT = "Into infinite light-years ―";
+  const COSMOS_TEXT = "Tap to create a star";
 
   let audioCtx, droneGain, riserOsc, riserGain, padGain;
   let phase = 'idle'; // idle -> coaster -> drop -> plasma
@@ -104,6 +104,9 @@
     };
   }
   for(let i=0;i<N_STARS;i++) stars.push(makeStar());
+
+  // 最終シーン：タップした回数だけ星が生まれる（保存しない）
+  let myStars = [];
 
   backBtn.addEventListener('click', ()=>{
     if(climbInterval) clearInterval(climbInterval);
@@ -175,6 +178,26 @@
   }
   startOverlay.addEventListener('click', startExperience, {once:true});
   startOverlay.addEventListener('touchstart', startExperience, {once:true});
+
+  function spawnMyStar(clientX, clientY){
+    if(phase !== 'cosmos') return;
+    const cosmosT = performance.now() - phaseStart;
+    const depth = 0.88;
+    const drift = cosmosT * 0.00045 * depth;
+    const denom = Math.max(0.001, 1 + drift);
+    myStars.push({
+      x: (clientX - W/2) / denom,
+      y: (clientY - H/2) / denom,
+      depth,
+      twinkle: Math.PI * 0.5,
+      bornAt: cosmosT
+    });
+  }
+
+  canvas.addEventListener('pointerup', (e)=>{
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    spawnMyStar(e.clientX, e.clientY);
+  });
 
   function drawClimb(t){
     ctx.fillStyle = 'rgba(0,0,10,0.4)';
@@ -330,6 +353,42 @@
       ctx.fillStyle = `rgba(255,255,255,${(0.25+0.55*tw*s.depth)*alpha})`;
       ctx.beginPath();
       ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fill();
+    }
+
+    for(const s of myStars){
+      s.twinkle += 0.025;
+      const drift = t*0.00045*s.depth;
+      const x = cx + s.x*(1+drift);
+      const y = cy + s.y*(1+drift);
+      const age = Math.max(0, t - s.bornAt);
+      const bloom = age < 2000 ? (1 - age/2000) : 0;
+      const tw = 0.55 + 0.45*Math.sin(s.twinkle);
+
+      if(bloom > 0){
+        const br = 8 + bloom * 46;
+        const bg = ctx.createRadialGradient(x,y,0,x,y,br);
+        bg.addColorStop(0, `rgba(255,240,210,${0.55*bloom*alpha})`);
+        bg.addColorStop(0.4, `rgba(255,210,160,${0.22*bloom*alpha})`);
+        bg.addColorStop(1, 'rgba(255,210,160,0)');
+        ctx.fillStyle = bg;
+        ctx.beginPath();
+        ctx.arc(x,y,br,0,Math.PI*2);
+        ctx.fill();
+      }
+
+      const haloR = 7 + tw*3;
+      const hg = ctx.createRadialGradient(x,y,0,x,y,haloR);
+      hg.addColorStop(0, `rgba(255,236,200,${(0.55+0.25*tw)*alpha})`);
+      hg.addColorStop(1, 'rgba(255,236,200,0)');
+      ctx.fillStyle = hg;
+      ctx.beginPath();
+      ctx.arc(x,y,haloR,0,Math.PI*2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255,248,230,${(0.75+0.25*tw)*alpha})`;
+      ctx.beginPath();
+      ctx.arc(x,y,1.6 + s.depth,0,Math.PI*2);
       ctx.fill();
     }
   }
