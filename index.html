@@ -51,6 +51,7 @@
 
   // ここは既存の「今日の奇跡の言葉」システムと差し替え可能
   const POEM = "Just as I am\nTo the place where I am loved —";
+  const COSMOS_TEXT = "Into infinite light-years ―";
 
   let audioCtx, droneGain, riserOsc, riserGain, padGain;
   let phase = 'idle'; // idle -> coaster -> drop -> plasma
@@ -59,6 +60,8 @@
   const CLIMB_MS = 3000;   // 上昇（チェーンリフト）の長さ
   const CREST_MS = 500;    // 頂上での一瞬の静止
   const RUSH_MS = 9500;    // 後ろ向き加速の長さ
+  const PLASMA_HOLD_MS = 18000; // プラズマの世界に留まる時間（宇宙への移行を10秒遅らせた）
+  const COSMOS_FADE_MS = 6000;  // 宇宙へ溶けていくクロスフェードの長さ
   let climbInterval = null;
   let climbAudioCleared = false;
 
@@ -88,6 +91,19 @@
     };
   }
   for(let i=0;i<N_ORBS;i++) orbs.push(makeOrb());
+
+  // === 宇宙（何光年も続く彼方）の星々 ===
+  const N_STARS = 180;
+  let stars = [];
+  function makeStar(){
+    return {
+      x: (Math.random()-0.5)*W*1.6,
+      y: (Math.random()-0.5)*H*1.6,
+      depth: 0.15 + Math.random()*1.0,
+      twinkle: Math.random()*Math.PI*2
+    };
+  }
+  for(let i=0;i<N_STARS;i++) stars.push(makeStar());
 
   backBtn.addEventListener('click', ()=>{
     if(climbInterval) clearInterval(climbInterval);
@@ -294,6 +310,30 @@
     }
   }
 
+  // 何光年も彼方まで、静かに進み続ける星空
+  function drawCosmos(t, alpha){
+    const cx = W/2, cy = H/2;
+    ctx.fillStyle = `rgba(2,2,12,${alpha})`;
+    ctx.fillRect(0,0,W,H);
+
+    for(const s of stars){
+      s.twinkle += 0.02;
+      const drift = t*0.00045*s.depth; // 深度に応じてゆっくり遠ざかっていく＝距離が伸び続ける感覚
+      const x = cx + s.x*(1+drift);
+      const y = cy + s.y*(1+drift);
+      if(x < -60 || x > W+60 || y < -60 || y > H+60){
+        Object.assign(s, makeStar(), {x: s.x*0.04, y: s.y*0.04});
+        continue;
+      }
+      const tw = 0.5 + 0.5*Math.sin(s.twinkle);
+      const r = 0.6 + s.depth*1.7;
+      ctx.fillStyle = `rgba(255,255,255,${(0.25+0.55*tw*s.depth)*alpha})`;
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
   function loop(now){
     if(!startTime) startTime = now;
 
@@ -333,7 +373,23 @@
         poemText.textContent = POEM;
       }
     } else if(phase === 'plasma'){
-      drawPlasma(now - phaseStart);
+      const t = now - phaseStart;
+      drawPlasma(t);
+      if(t > PLASMA_HOLD_MS){
+        const ft = t - PLASMA_HOLD_MS;
+        const alpha = Math.min(1, ft/COSMOS_FADE_MS);
+        drawCosmos(ft, alpha);
+        if(alpha >= 1){
+          phase = 'cosmos'; phaseStart = now;
+          poemText.style.opacity = 0;
+          setTimeout(()=>{
+            poemText.textContent = COSMOS_TEXT;
+            poemText.style.opacity = 1;
+          }, 1500);
+        }
+      }
+    } else if(phase === 'cosmos'){
+      drawCosmos(now - phaseStart, 1);
     } else {
       ctx.fillStyle = 'rgba(0,0,10,1)';
       ctx.fillRect(0,0,W,H);
