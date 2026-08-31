@@ -12,6 +12,7 @@ Nothing here is saved. What you see exists only while you're here.
 星が増やせます。
 
 ![iris1 thumbnail](./iris1.png)
+![iris-afterglow](iris1.png)
 
 
 
