@@ -11,6 +11,7 @@ Nothing here is saved. What you see exists only while you're here.
 最後は好きな所をタップしてください。
 星が増やせます。
 
-![iris1](./iris1.png)
+![iris1 thumbnail](./iris1.png)
+
 
 
