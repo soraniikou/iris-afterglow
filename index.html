@@ -54,12 +54,13 @@
   const COSMOS_TEXT = "Tap to create a star";
 
   let audioCtx, droneGain, riserOsc, riserGain, padGain;
-  let phase = 'idle'; // idle -> coaster -> drop -> plasma
+  let phase = 'idle'; // idle -> coaster -> plunge -> drop -> plasma
   let phaseStart = 0;
   let startTime = 0;
   const CLIMB_MS = 3000;   // 上昇（チェーンリフト）の長さ
   const CREST_MS = 500;    // 頂上での一瞬の静止
   const RUSH_MS = 9500;    // 後ろ向き加速の長さ
+  const PLUNGE_MS = 8400;  // 落下している最中の演出の長さ（新規追加、従来の3倍に延長）
   const PLASMA_HOLD_MS = 18000; // プラズマの世界に留まる時間（宇宙への移行を10秒遅らせた）
   const COSMOS_FADE_MS = 6000;  // 宇宙へ溶けていくクロスフェードの長さ
   let climbInterval = null;
@@ -78,6 +79,21 @@
     const p = {}; resetParticle(p);
     p.radius = Math.random()*Math.max(W,H)*0.75;
     particles.push(p);
+  }
+
+  // === 落下中に画面を駆け上がる光の筋（新規追加） ===
+  const N_FALLLINES = 60;
+  let fallLines = [];
+  function resetFallLine(l){
+    l.x = Math.random()*W;
+    l.y = H + Math.random()*H*0.5;
+    l.len = 30 + Math.random()*70;
+    l.speedBase = 4 + Math.random()*6;
+  }
+  for(let i=0;i<N_FALLLINES;i++){
+    const l = {}; resetFallLine(l);
+    l.y = Math.random()*H;
+    fallLines.push(l);
   }
 
   // === プラズマ用の光の粒 ===
@@ -127,7 +143,7 @@
     drone.start();
     droneGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 1.5);
 
-    // 落下直前の煽り上昇音
+    // 落下直前〜落下中の煽り上昇音
     riserOsc = audioCtx.createOscillator(); riserOsc.type = 'sine';
     riserGain = audioCtx.createGain(); riserGain.gain.value = 0;
     riserOsc.connect(riserGain).connect(audioCtx.destination);
@@ -164,6 +180,24 @@
     const g = audioCtx.createGain(); g.gain.value = 0.4;
     src.connect(g).connect(audioCtx.destination);
     src.start();
+  }
+
+  // 落下中に鳴らす風切り音（新規追加）
+  function startWindNoise(durationSec){
+    const bufferSize = Math.floor(audioCtx.sampleRate * durationSec);
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
+    const src = audioCtx.createBufferSource(); src.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass'; filter.frequency.value = 500; filter.Q.value = 0.6;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + durationSec*0.85);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + durationSec);
+    src.connect(filter).connect(g).connect(audioCtx.destination);
+    src.start();
+    src.stop(audioCtx.currentTime + durationSec + 0.05);
   }
 
   function startExperience(){
@@ -276,6 +310,56 @@
     ctx.fillText('♪', cx+50+Math.cos(t/260)*10, cy-90);
 
     if(droneGain) droneGain.gain.value = Math.min(0.25, 0.1 + t/20000);
+  }
+
+  // 落下している最中の演出（新規追加）：光の筋が下から上へ駆け抜け、ビネットで視界が狭まり、
+  // 終盤に水の世界を予感させる淡い光が滲みはじめる
+  function drawPlunge(t){
+    const progress = Math.min(1, t/PLUNGE_MS);
+
+    // 完全にクリアせずうっすら重ねてモーションブラー感を出す
+    ctx.fillStyle = `rgba(0,0,8,${0.35 - 0.15*progress})`;
+    ctx.fillRect(0,0,W,H);
+
+    const speedMul = 3 + progress*22;
+    for(const l of fallLines){
+      l.y -= l.speedBase * speedMul;
+      if(l.y < -l.len) resetFallLine(l);
+      const alpha = 0.25 + 0.5*progress;
+      ctx.strokeStyle = `rgba(210,225,255,${alpha})`;
+      ctx.lineWidth = 1 + progress*1.5;
+      ctx.beginPath();
+      ctx.moveTo(l.x, l.y);
+      ctx.lineTo(l.x, l.y + l.len*(0.5+progress));
+      ctx.stroke();
+    }
+
+    // 加速するほど視界の周辺が狭まっていくビネット
+    const vig = ctx.createRadialGradient(W/2,H/2, H*0.15, W/2,H/2, H*0.75);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, `rgba(0,0,10,${0.5*progress})`);
+    ctx.fillStyle = vig;
+    ctx.fillRect(0,0,W,H);
+
+    // 終盤、水面へ近づく気配として淡い光の粒が浮かび始める
+    if(progress > 0.6){
+      const emerge = (progress-0.6)/0.4;
+      for(let i=0;i<8;i++){
+        const ox = W*0.5 + Math.sin(i*2.1+t*0.002)*W*0.35;
+        const oy = H*0.5 + Math.cos(i*1.7+t*0.0025)*H*0.35;
+        const r = 6+i*2;
+        const g = ctx.createRadialGradient(ox,oy,0,ox,oy,r);
+        g.addColorStop(0, `hsla(${190+i*8},80%,75%,${0.35*emerge})`);
+        g.addColorStop(1, 'hsla(0,0%,100%,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(ox,oy,r,0,Math.PI*2); ctx.fill();
+      }
+    }
+
+    // 加速する鼓動感を伝える微振動フラッシュ
+    const flick = Math.sin(t*0.02)*0.5+0.5;
+    ctx.fillStyle = `rgba(255,255,255,${0.02*flick*progress})`;
+    ctx.fillRect(0,0,W,H);
   }
 
   function drawDrop(now){
@@ -407,17 +491,24 @@
         const rt = t - CLIMB_MS - CREST_MS;
         drawCoaster(rt);
         if(rt > RUSH_MS){
-          phase = 'drop'; phaseStart = now;
-          riserOsc.frequency.setValueAtTime(200, audioCtx.currentTime);
-          riserOsc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime+1.0);
+          // 落下している最中の演出フェーズへ（新規追加）
+          phase = 'plunge'; phaseStart = now;
+          const durSec = PLUNGE_MS/1000;
+          riserOsc.frequency.setValueAtTime(70, audioCtx.currentTime);
+          riserOsc.frequency.exponentialRampToValueAtTime(1000, audioCtx.currentTime + durSec);
           riserGain.gain.setValueAtTime(0.001, audioCtx.currentTime);
-          riserGain.gain.exponentialRampToValueAtTime(0.3, audioCtx.currentTime+1.0);
-          setTimeout(()=>{
-            noiseBurst();
-            riserGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.5);
-            droneGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime+1.0);
-          }, 1000);
+          riserGain.gain.exponentialRampToValueAtTime(0.32, audioCtx.currentTime + durSec*0.9);
+          droneGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + durSec*0.8);
+          startWindNoise(durSec);
         }
+      }
+    } else if(phase === 'plunge'){
+      const t = now - phaseStart;
+      drawPlunge(t);
+      if(t > PLUNGE_MS){
+        phase = 'drop'; phaseStart = now;
+        noiseBurst();
+        riserGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.4);
       }
     } else if(phase === 'drop'){
       drawDrop(now);
