@@ -407,4 +407,63 @@
       world.render(0, ts);
     } else if(phase === 'coaster'){
       const t = now - phaseStart;
-      if(t < CLIMB
+      if(t < CLIMB_MS + CREST_MS){
+        world.render(t, ts);
+        coasterAudio(t);
+      } else {
+        phase = 'plunge'; phaseStart = now;
+        threeCanvas.style.opacity = 0; // 3Dをすっと溶かして、落下の演出へ
+        const durSec = PLUNGE_MS/1000, ct = audioCtx.currentTime;
+        riserOsc.frequency.setValueAtTime(70, ct);
+        riserOsc.frequency.exponentialRampToValueAtTime(1000, ct + durSec);
+        riserGain.gain.setValueAtTime(0.001, ct);
+        riserGain.gain.exponentialRampToValueAtTime(0.32, ct + durSec*0.9);
+        droneGain.gain.setTargetAtTime(0, ct, 0.3);
+        windG.gain.setTargetAtTime(0, ct, 0.4);
+        startWindNoise(durSec);
+      }
+    } else if(phase === 'plunge'){
+      const t = now - phaseStart;
+      const ct3 = CLIMB_MS + CREST_MS + t;
+      if(t < 1500) world.render(ct3, ts);
+      drawPlunge(t);
+      if(t > PLUNGE_MS){
+        phase = 'drop'; phaseStart = now;
+        noiseBurst();
+        riserGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.4);
+      }
+    } else if(phase === 'drop'){
+      drawDrop(now);
+      if(now - phaseStart > 900){
+        phase = 'plasma'; phaseStart = now;
+        const now0 = audioCtx.currentTime;
+        [droneGain, riserGain, padGain, windG].forEach(g=>{
+          g.gain.cancelScheduledValues(now0);
+          g.gain.setValueAtTime(0, now0);
+        });
+        setTimeout(()=>{ poemText.style.opacity = 1; }, 3000);
+        poemText.textContent = POEM;
+      }
+    } else if(phase === 'plasma'){
+      const t = now - phaseStart;
+      drawPlasma(t);
+      if(t > PLASMA_HOLD_MS){
+        const ft = t - PLASMA_HOLD_MS;
+        const alpha = Math.min(1, ft/COSMOS_FADE_MS);
+        drawCosmos(ft, alpha);
+        if(alpha >= 1){
+          phase = 'cosmos'; phaseStart = now;
+          poemText.style.opacity = 0;
+          setTimeout(()=>{ poemText.textContent = COSMOS_TEXT; poemText.style.opacity = 1; }, 1500);
+        }
+      }
+    } else if(phase === 'cosmos'){
+      drawCosmos(now - phaseStart, 1);
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
