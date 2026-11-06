@@ -1,8 +1,11 @@
 タップだけで、名前やメールなどの個人情報を入力させる仕組みは一切ないので、安心してお使いくださいませ😊
 ジェットコースターに乗って、落下したら、水中をイメージして、ご自身を愛している画像です。
 Nothing here is saved. What you see exists only while you're here
+
 アプリ体験→
 https://iris-afterglow.vercel.app
+
+
 ![画像](1106.N.png)
 
 ![画像](1106.png)
