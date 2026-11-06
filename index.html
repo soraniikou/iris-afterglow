@@ -14,8 +14,25 @@
     flex-direction:column;color:#fff;font-family:'Hiragino Mincho ProN','游明朝',serif;
     z-index:10;background:radial-gradient(circle,#0a0a18,#000);cursor:pointer;transition:opacity .8s;
   }
-  #startOverlay p{letter-spacing:0.25em;font-size:1.05rem;opacity:0.85;animation:pulse 2.2s infinite;}
+  #startOverlay p{letter-spacing:0.25em;font-size:1.05rem;opacity:0.85;animation:pulse 2.2s infinite;z-index:1;}
+  #shootingStar{
+    position:absolute;left:0;top:0;width:96px;height:2px;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),#fff);
+    border-radius:2px;filter:drop-shadow(0 0 6px rgba(255,255,255,.9));
+    animation:shootingStar 8s linear forwards;
+  }
+  #shootingStar::after{
+    content:"";position:absolute;right:-3px;top:50%;width:7px;height:7px;
+    margin-top:-3.5px;border-radius:50%;background:#fff;
+    box-shadow:0 0 10px 3px rgba(255,255,255,.85),0 0 22px 6px rgba(200,220,255,.45);
+  }
   @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  @keyframes shootingStar{
+    0%{transform:translate(108vw,-6vh) rotate(135deg);opacity:0}
+    6%{opacity:1}
+    92%{opacity:1}
+    100%{transform:translate(-18vw,108vh) rotate(135deg);opacity:0}
+  }
   #poemText{
     position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
     color:#fff;font-family:'Hiragino Mincho ProN','游明朝',serif;font-size:1.2rem;
@@ -34,7 +51,7 @@
 </style>
 </head>
 <body>
-<div id="startOverlay"><p>Tap, and begin the ride ―</p></div>
+<div id="startOverlay"><div id="shootingStar"></div><p>Tap anywhere and begin the ride</p></div>
 <button id="backBtn">← back</button>
 <div id="poemText"></div>
 <canvas id="three"></canvas>
@@ -142,7 +159,7 @@
   addEventListener('resize', resize);
 
   const POEM = "Just as I am\nTo the place where I am loved —";
-  const COSMOS_TEXT = "Tap to create a star";
+  const COSMOS_TEXT = "Tap anywhere to create a star";
 
   let audioCtx, droneGain, riserOsc, riserGain, padGain, windF, windG, busNode, noiseBuf;
   let phase = 'idle'; // idle -> coaster -> plunge -> drop -> plasma -> cosmos
