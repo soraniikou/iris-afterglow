@@ -1,9 +1,10 @@
 タップだけで、名前やメールなどの個人情報を入力させる仕組みは一切ないので、安心してお使いくださいませ😊
-ジェットコースターに乗って、落下したら、プラズマ（米津玄師さんのプラズマをオマージュさせていただき）の水中をイメージして、ご自身を愛している画像です。
-Nothing here is saved. What you see exists only while you're here.
-
+ジェットコースターに乗って、落下したら、水中をイメージして、ご自身を愛している画像です。
+Nothing here is saved. What you see exists only while you're here
 アプリ体験→
 https://iris-afterglow.vercel.app
+
+![画像](1106.png)
 
 ![screenshot 140401 thumbnai](./%e3%82%b9%e3%82%af%e3%83%aa%e3%83%bc%e3%83%b3%e3%82%b7%e3%83%a7%e3%83%83%e3%83%88%20%32%30%32%36%2d%30%38%2d%33%30%20%31%34%30%34%30%31%2e%70%6e%67)
 ![screenshot 140418 thumbnai](./%e3%82%b9%e3%82%af%e3%83%aa%e3%83%bc%e3%83%b3%e3%82%b7%e3%83%a7%e3%83%83%e3%83%88%20%32%30%32%36%2d%30%38%2d%33%30%20%31%34%30%34%31%38%2e%70%6e%67)
